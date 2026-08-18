@@ -1,0 +1,6 @@
+{
+  "name": "QuantPilot",
+  "description": "Institutional-grade stock simulation and LLM-powered decision support engine featuring Monte Carlo forecasting, macro stress-testing, and qualitative market synthesis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
