@@ -20,14 +20,19 @@ function getGenAI(): GoogleGenAI | null {
 }
 
 /**
- * Robust helper to call Gemini with automatic model fallback if 503/high-demand or transient rate-limits occur
+ * Robust helper to call Gemini with automatic model fallback across supported current models
  */
 async function generateGeminiContentWithFallback(
   ai: GoogleGenAI,
   prompt: string,
   temperature: number = 0.2
 ): Promise<string> {
-  const candidateModels = ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
+  const candidateModels = [
+    'gemini-3.7-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-flash-latest',
+    'gemini-3.1-pro-preview',
+  ];
   let lastError: any = null;
 
   for (const model of candidateModels) {
@@ -47,14 +52,14 @@ async function generateGeminiContentWithFallback(
       }
     } catch (err: any) {
       lastError = err;
-      // If 503 or high demand, briefly wait and try next candidate model
       const errMsg = err?.message || String(err);
-      console.warn(`Gemini model ${model} unavailable (${errMsg.slice(0, 80)}...), trying fallback candidate...`);
-      await new Promise(r => setTimeout(r, 200));
+      // Log informative warning without polluting logs
+      console.warn(`Gemini model ${model} status notice (${errMsg.slice(0, 70)}...), attempting next model...`);
+      await new Promise(r => setTimeout(r, 150));
     }
   }
 
-  throw lastError || new Error('All Gemini candidate models failed to respond');
+  throw lastError || new Error('All Gemini candidate models currently unavailable');
 }
 
 async function startServer() {

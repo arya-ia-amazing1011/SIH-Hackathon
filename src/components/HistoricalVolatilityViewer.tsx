@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { StockTicker, Mode, HistoricalDataPoint } from '../types';
 import { generateHistoricalVolatilitySeries, generateVolatilityCone } from '../utils/quantEngine';
+import { getMarketStatus } from '../utils/marketHours';
 import {
   Activity,
   TrendingUp,
@@ -27,7 +28,10 @@ import {
   RefreshCw,
   Zap,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Clock,
+  ShieldAlert,
+  SlidersHorizontal
 } from 'lucide-react';
 
 interface HistoricalVolatilityViewerProps {
@@ -43,14 +47,19 @@ export const HistoricalVolatilityViewer: React.FC<HistoricalVolatilityViewerProp
   const [activeSubView, setActiveSubView] = useState<'bands' | 'cone' | 'distribution'>('bands');
   const [hoveredTenor, setHoveredTenor] = useState<string | null>(null);
 
+  // Compute live market status
+  const marketStatus = useMemo(() => getMarketStatus(ticker), [ticker]);
+
   // --- Live Market Feed Streaming State ---
-  const [isLiveStreaming, setIsLiveStreaming] = useState<boolean>(true);
+  // When market is closed, default streaming to false unless user explicitly activates sandbox simulation
+  const [isLiveStreaming, setIsLiveStreaming] = useState<boolean>(marketStatus.isOpen);
+  const [sandboxSimulationMode, setSandboxSimulationMode] = useState<boolean>(false);
   const [streamSpeed, setStreamSpeed] = useState<number>(2500); // 2.5s per tick default
   const [livePrice, setLivePrice] = useState<number>(ticker.price);
   const [livePriceChange, setLivePriceChange] = useState<number>(0);
   const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
   const [liveTickCount, setLiveTickCount] = useState<number>(0);
-  const [lastTickTime, setLastTickTime] = useState<string>('Just now');
+  const [lastTickTime, setLastTickTime] = useState<string>('Official Close');
 
   // Base historical series generated from quant engine
   const baseHistoricalData = useMemo(() => {
@@ -62,12 +71,15 @@ export const HistoricalVolatilityViewer: React.FC<HistoricalVolatilityViewerProp
 
   // Sync state whenever ticker or lookback period changes
   useEffect(() => {
+    const isCurrentlyOpen = marketStatus.isOpen;
+    setIsLiveStreaming(isCurrentlyOpen || sandboxSimulationMode);
     setLivePrice(ticker.price);
     setLivePriceChange(0);
     setPriceFlash(null);
     setLiveTickCount(0);
+    setLastTickTime(isCurrentlyOpen ? 'Streaming Live' : 'Market Closed (Official Close)');
     setLiveHistoricalSeries(baseHistoricalData);
-  }, [ticker.symbol, selectedPeriod, baseHistoricalData]);
+  }, [ticker.symbol, selectedPeriod, baseHistoricalData, marketStatus.isOpen]);
 
   // Push an incoming live tick and recalculate rolling 30D volatility & envelope in real time
   const handleIngestLiveTick = useCallback((tickPriceDelta: number) => {
@@ -143,6 +155,7 @@ export const HistoricalVolatilityViewer: React.FC<HistoricalVolatilityViewerProp
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [isLiveStreaming, streamSpeed, ticker.volatility, ticker.price, handleIngestLiveTick]);
+
 
   const currencySymbol = ticker.currency === 'INR' ? '₹' : '$';
 
@@ -239,26 +252,77 @@ export const HistoricalVolatilityViewer: React.FC<HistoricalVolatilityViewerProp
 
   return (
     <div className="space-y-3.5">
+      {/* Market Closed Official Notice Banner (if market is currently closed) */}
+      {!marketStatus.isOpen && (
+        <div className="rounded-lg border border-rose-800/60 bg-rose-950/40 p-3 text-xs font-mono flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="flex items-start gap-2.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-rose-500 mt-1 shrink-0"></div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-rose-300 uppercase tracking-wide">
+                  {marketStatus.label}
+                </span>
+                <span className="text-[10px] text-rose-400 bg-rose-900/60 px-1.5 py-0.5 rounded border border-rose-700/50">
+                  {ticker.exchange}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 font-sans mt-0.5">
+                {marketStatus.detail} Showing official closing price of{' '}
+                <span className="font-bold text-white font-mono">
+                  {ticker.currency === 'INR' ? '₹' : '$'}{ticker.price.toFixed(2)}
+                </span>
+                .
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                const nextMode = !sandboxSimulationMode;
+                setSandboxSimulationMode(nextMode);
+                setIsLiveStreaming(nextMode);
+              }}
+              className={`px-2.5 py-1 rounded text-[11px] font-bold transition flex items-center gap-1.5 ${
+                sandboxSimulationMode
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50'
+                  : 'bg-slate-800 text-slate-300 hover:text-white border border-slate-700 hover:border-slate-500'
+              }`}
+              title="Toggle stochastic sandbox tick simulation for testing when exchange is closed"
+            >
+              <SlidersHorizontal className="w-3 h-3 text-amber-400" />
+              <span>{sandboxSimulationMode ? 'SANDBOX REPLAY ACTIVE' : 'RUN SANDBOX SIMULATION'}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top Bar: Live Market Streaming Controller & Sub-View Switcher */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-slate-700/60 font-mono text-xs">
         {/* Live Feed Status Badge & Controls */}
         <div className="flex items-center flex-wrap gap-2">
-          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 px-2.5 py-1 rounded-md">
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border ${
+            isLiveStreaming
+              ? (sandboxSimulationMode ? 'bg-amber-950/30 border-amber-600/40 text-amber-300' : 'bg-emerald-950/30 border-emerald-600/40 text-emerald-300')
+              : 'bg-slate-900 border-slate-700 text-slate-400'
+          }`}>
             <span className="relative flex h-2 w-2">
               {isLiveStreaming ? (
                 <>
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${sandboxSimulationMode ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
+                  <span className={`relative inline-flex rounded-full h-2 w-2 ${sandboxSimulationMode ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
                 </>
               ) : (
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-slate-500"></span>
               )}
             </span>
-            <span className="text-[10px] font-bold text-slate-200 uppercase">
-              {isLiveStreaming ? 'LIVE MARKET FEED' : 'FEED PAUSED'}
+            <span className="text-[10px] font-bold uppercase">
+              {isLiveStreaming
+                ? (sandboxSimulationMode ? 'SANDBOX SIMULATOR (OFF-HOURS)' : 'LIVE EXCHANGE FEED')
+                : 'OFFICIAL CLOSE (STATIC)'}
             </span>
             <span className="text-[9px] text-slate-500 pl-1 border-l border-slate-800">
-              {ticker.symbol} (Tick #{liveTickCount})
+              {ticker.symbol} {isLiveStreaming ? `(Tick #${liveTickCount})` : ''}
             </span>
           </div>
 
