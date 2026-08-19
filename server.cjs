@@ -41,7 +41,12 @@ function getGenAI() {
   return aiClient;
 }
 async function generateGeminiContentWithFallback(ai, prompt, temperature = 0.2) {
-  const candidateModels = ["gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash"];
+  const candidateModels = [
+    "gemini-3.7-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-flash-latest",
+    "gemini-3.1-pro-preview"
+  ];
   let lastError = null;
   for (const model of candidateModels) {
     try {
@@ -60,11 +65,11 @@ async function generateGeminiContentWithFallback(ai, prompt, temperature = 0.2) 
     } catch (err) {
       lastError = err;
       const errMsg = err?.message || String(err);
-      console.warn(`Gemini model ${model} unavailable (${errMsg.slice(0, 80)}...), trying fallback candidate...`);
-      await new Promise((r) => setTimeout(r, 200));
+      console.warn(`Gemini model ${model} status notice (${errMsg.slice(0, 70)}...), attempting next model...`);
+      await new Promise((r) => setTimeout(r, 150));
     }
   }
-  throw lastError || new Error("All Gemini candidate models failed to respond");
+  throw lastError || new Error("All Gemini candidate models currently unavailable");
 }
 async function startServer() {
   const app = (0, import_express.default)();
